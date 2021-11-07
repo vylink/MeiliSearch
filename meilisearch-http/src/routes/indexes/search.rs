@@ -22,6 +22,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SearchQueryGet {
     q: Option<String>,
+    index_for: Option<usize>,
     offset: Option<usize>,
     limit: Option<usize>,
     attributes_to_retrieve: Option<String>,
@@ -66,6 +67,7 @@ impl From<SearchQueryGet> for SearchQuery {
 
         Self {
             q: other.q,
+            index_for: other.index_for,
             offset: other.offset,
             limit: other.limit.unwrap_or(DEFAULT_SEARCH_LIMIT),
             attributes_to_retrieve,

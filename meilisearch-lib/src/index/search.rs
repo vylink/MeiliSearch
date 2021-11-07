@@ -39,6 +39,7 @@ pub const fn default_crop_length() -> usize {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SearchQuery {
     pub q: Option<String>,
+    pub index_for: Option<usize>,
     pub offset: Option<usize>,
     #[serde(default = "default_search_limit")]
     pub limit: usize,
@@ -74,6 +75,7 @@ pub struct SearchResult {
     pub query: String,
     pub limit: usize,
     pub offset: usize,
+    pub index_for: usize,
     pub processing_time_ms: u128,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub facets_distribution: Option<BTreeMap<String, BTreeMap<String, u64>>>,
@@ -93,6 +95,35 @@ impl Index {
         let rtxn = self.read_txn()?;
 
         let mut search = self.search(&rtxn);
+
+        if let Some(ref sort) = query.sort {
+            let sort = match sort.iter().map(|s| AscDesc::from_str(s)).collect() {
+                Ok(sorts) => sorts,
+                Err(asc_desc_error) => {
+                    return Err(IndexError::Milli(SortError::from(asc_desc_error).into()))
+                }
+            };
+
+            search.sort_criteria(sort);
+        }
+
+
+        let milli::SearchResult {
+            documents_ids,
+            ..
+        } = search.execute()?;
+
+        let documents_iter = self.documents(&rtxn, documents_ids)?;
+        let fields_ids_map = self.fields_ids_map(&rtxn).unwrap();
+
+        let mut ids = BTreeSet::new();
+        ids.insert(0);
+
+        for (_id, obkv) in documents_iter {
+            let document = make_document(&ids, &fields_ids_map, obkv)?;
+            println!("{:?}", document);
+        }
+
 
         if let Some(ref query) = query.q {
             search.query(query);
@@ -204,6 +235,8 @@ impl Index {
                 &formatted_options,
             )?;
 
+            // println!("{:?}", formatter);
+
             if let Some(sort) = query.sort.as_ref() {
                 insert_geo_distance(sort, &mut document);
             }
@@ -239,6 +272,7 @@ impl Index {
             nb_hits,
             query: query.q.clone().unwrap_or_default(),
             limit: query.limit,
+            index_for: query.index_for.unwrap_or_default(),
             offset: query.offset.unwrap_or_default(),
             processing_time_ms: before_search.elapsed().as_millis(),
             facets_distribution,
